@@ -19,6 +19,9 @@ nltk_data_path = os.path.join(script_dir, "nltk_data")
 # This prevents the LookupError and DownloadError on Streamlit Cloud
 nltk.data.path.append(nltk_data_path)
 
+# Initialize Lemmatizer globally before model loading
+lemmatizer = WordNetLemmatizer()
+
 
 # --- 2. Load Models (Cached for Performance) ---
 
@@ -26,31 +29,31 @@ nltk.data.path.append(nltk_data_path)
 def load_models():
     """Loads the pre-trained TF-IDF vectorizer and the Logistic Regression model."""
     try:
-        # Define relative paths to models folder (assuming models are in 'models/' directory)
-        vectorizer_path = os.path.join(script_dir, 'logistic_regression_model.pkl')
-        model_path = os.path.join(script_dir, 'tfidf_vectorizer.pkl')
+        # Use explicit, joined paths to ensure the files are found relative to app.py
+        vectorizer_filepath = os.path.join(script_dir, 'tfidf_vectorizer.pkl')
+        model_filepath = os.path.join(script_dir, 'logistic_regression_model.pkl')
 
-        # NOTE: Based on your file image, the .pkl files are directly in the root,
-        # so we will use the direct file names. Adjust the paths if you move them
-        # into a 'models' directory later.
-
-        with open('tfidf_vectorizer.pkl', 'rb') as f:
+        # Load Vectorizer
+        with open(vectorizer_filepath, 'rb') as f:
             tfidf_vectorizer = pickle.load(f)
         
-        with open('logistic_regression_model.pkl', 'rb') as f:
+        # Load Model
+        with open(model_filepath, 'rb') as f:
             model = pickle.load(f)
             
         return tfidf_vectorizer, model
     except FileNotFoundError as e:
+        # This will display an error on the screen if files are missing
         st.error(f"Error: Model file not found. Please ensure 'tfidf_vectorizer.pkl' and 'logistic_regression_model.pkl' are in the same directory as app.py. Details: {e}")
         return None, None
     except Exception as e:
-        st.error(f"An unexpected error occurred during model loading: {e}")
+        # Catch potential pickle unpickling errors or other issues
+        st.error(f"An unexpected error occurred during model loading. Details: {e}")
         return None, None
 
+# Load the models and stopwords globally after NLTK path is set
 tfidf_vectorizer, model = load_models()
-stop_words = set(stopwords.words('english'))
-lemmatizer = WordNetLemmatizer()
+stop_words = set(stopwords.words('english')) # This will now work as the NLTK path is set
 
 
 # --- 3. Text Preprocessing Function ---
@@ -71,7 +74,7 @@ def preprocess_text(text):
     # Remove punctuation
     text = text.translate(str.maketrans('', '', string.punctuation))
     
-    # Remove numbers (optional, but good practice for general text analysis)
+    # Remove numbers
     text = re.sub(r'\d+', '', text)
 
     # Tokenize (split into words)
@@ -91,7 +94,8 @@ def predict_fake_news(text, vectorizer, model):
     Vectorizes text and returns the model prediction and confidence.
     """
     if not vectorizer or not model:
-        return "N/A", 0.0, "Model Error"
+        # Handle cases where model loading failed
+        return "N/A", 0.0, "Model/Vectorizer not loaded due to an earlier error."
 
     # Preprocess the text
     processed_text = preprocess_text(text)
@@ -107,7 +111,6 @@ def predict_fake_news(text, vectorizer, model):
     prediction = model.predict(vectorized_text)[0]
     
     # Get the confidence score (probability for the predicted class)
-    # predict_proba returns [[prob_class_0, prob_class_1]]
     confidence = model.predict_proba(vectorized_text)[0]
     
     # Map the numerical prediction to labels
@@ -125,7 +128,7 @@ def main():
     """Main function to run the Streamlit application."""
     st.set_page_config(page_title="Fake News Detector", layout="centered")
 
-    # Title and Description
+    # ... (Styling code omitted for brevity but is in the file)
     st.markdown(
         """
         <style>
