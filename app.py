@@ -8,6 +8,36 @@ from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
 import numpy as np
 
+
+# Function to safely download NLTK data
+def download_nltk_data():
+    try:
+        nltk.data.find('corpora/stopwords')
+    except nltk.downloader.DownloadError:
+        nltk.download('stopwords')
+    except LookupError:
+        nltk.download('stopwords')
+
+# Call the function to ensure data is present
+# Use Streamlit's cache functionality to only run this once
+@st.cache_resource
+def setup_nltk():
+    download_nltk_data()
+    # If you also use word tokenization, you might need 'punkt'
+    # try:
+    #     nltk.data.find('tokenizers/punkt')
+    # except (nltk.downloader.DownloadError, LookupError):
+    #     nltk.download('punkt')
+
+# Run the setup before the app logic
+setup_nltk()
+
+# Now, the rest of your app code can run safely, including:
+from nltk.corpus import stopwords
+stop_words = set(stopwords.words('english'))
+
+# ... rest of your app.py code ...
+
 # Download NLTK resources if not already present
 # nltk.download('punkt')
 # nltk.download('stopwords')
