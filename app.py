@@ -3,138 +3,223 @@ import pickle
 import re
 import string
 import nltk
+import os
 from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
-import numpy as np
+
+# --- 1. NLTK Data Path Setup (Crucial for Streamlit Cloud Deployment) ---
+
+# Get the directory where the app.py script is located
+script_dir = os.path.dirname(__file__)
+
+# Define the relative path to the nltk_data folder (This folder MUST be in your repo)
+nltk_data_path = os.path.join(script_dir, "nltk_data")
+
+# Add the local path to NLTK's data search path
+# This prevents the LookupError and DownloadError on Streamlit Cloud
+nltk.data.path.append(nltk_data_path)
 
 
-# Function to safely download NLTK data
-def download_nltk_data():
-    try:
-        nltk.data.find('corpora/stopwords')
-    except nltk.downloader.DownloadError:
-        nltk.download('stopwords')
-    except LookupError:
-        nltk.download('stopwords')
+# --- 2. Load Models (Cached for Performance) ---
 
-# Call the function to ensure data is present
-# Use Streamlit's cache functionality to only run this once
 @st.cache_resource
-def setup_nltk():
-    download_nltk_data()
-    # If you also use word tokenization, you might need 'punkt'
-    # try:
-    #     nltk.data.find('tokenizers/punkt')
-    # except (nltk.downloader.DownloadError, LookupError):
-    #     nltk.download('punkt')
+def load_models():
+    """Loads the pre-trained TF-IDF vectorizer and the Logistic Regression model."""
+    try:
+        # Define relative paths to models folder (assuming models are in 'models/' directory)
+        vectorizer_path = os.path.join(script_dir, 'logistic_regression_model.pkl')
+        model_path = os.path.join(script_dir, 'tfidf_vectorizer.pkl')
 
-# Run the setup before the app logic
-setup_nltk()
+        # NOTE: Based on your file image, the .pkl files are directly in the root,
+        # so we will use the direct file names. Adjust the paths if you move them
+        # into a 'models' directory later.
 
-# Now, the rest of your app code can run safely, including:
-from nltk.corpus import stopwords
+        with open('tfidf_vectorizer.pkl', 'rb') as f:
+            tfidf_vectorizer = pickle.load(f)
+        
+        with open('logistic_regression_model.pkl', 'rb') as f:
+            model = pickle.load(f)
+            
+        return tfidf_vectorizer, model
+    except FileNotFoundError as e:
+        st.error(f"Error: Model file not found. Please ensure 'tfidf_vectorizer.pkl' and 'logistic_regression_model.pkl' are in the same directory as app.py. Details: {e}")
+        return None, None
+    except Exception as e:
+        st.error(f"An unexpected error occurred during model loading: {e}")
+        return None, None
+
+tfidf_vectorizer, model = load_models()
 stop_words = set(stopwords.words('english'))
-
-# ... rest of your app.py code ...
-
-# Download NLTK resources if not already present
-# nltk.download('punkt')
-# nltk.download('stopwords')
-# nltk.download('wordnet')
-
-# --- 1. Load the Model and Vectorizer ---
-try:
-    with open('models/tfidf_vectorizer.pkl', 'rb') as file:
-        tfidf_vectorizer = pickle.load(file)
-
-    with open('models/logistic_regression_model.pkl', 'rb') as file:
-        model = pickle.load(file)
-
-except FileNotFoundError:
-    st.error("Error: Model files not found. Please ensure 'models/tfidf_vectorizer.pkl' and 'models/logistic_regression_model.pkl' exist.")
-    st.stop()
-
-
-# --- 2. Text Preprocessing Function ---
 lemmatizer = WordNetLemmatizer()
-stop_words = set(stopwords.words('english'))
+
+
+# --- 3. Text Preprocessing Function ---
 
 def preprocess_text(text):
-    """Cleans, tokenizes, removes stopwords, and lemmatizes the input text."""
-    # Convert to lowercase and remove punctuation/special characters
+    """
+    Cleans and processes the input text for prediction.
+    """
+    if not text:
+        return ""
+        
+    # Convert to lowercase
     text = text.lower()
-    text = re.sub('\[.*?\]', '', text)
-    text = re.sub("\\W"," ",text) 
-    text = re.sub('https?://\S+|www\.\S+', '', text)
-    text = re.sub('<.*?>+', '', text)
-    text = re.sub('[%s]' % re.escape(string.punctuation), '', text)
-    text = re.sub('\n', '', text)
-    text = re.sub('\w*\d\w*', '', text)
+    
+    # Remove URL links
+    text = re.sub(r'https?://\S+|www\.\S+', '', text)
+    
+    # Remove punctuation
+    text = text.translate(str.maketrans('', '', string.punctuation))
+    
+    # Remove numbers (optional, but good practice for general text analysis)
+    text = re.sub(r'\d+', '', text)
 
-    # Tokenize and remove stopwords
-    tokens = word_tokenize(text)
-    tokens = [word for word in tokens if word not in stop_words and word.isalpha()]
-
-    # Lemmatize
-    tokens = [lemmatizer.lemmatize(word) for word in tokens]
-
-    return " ".join(tokens)
-
-
-# --- 3. Prediction Function ---
-def predict_news(news_text):
-    """Preprocesses the text and uses the model to predict the class and confidence."""
-
-    # Preprocess the input text
-    cleaned_text = preprocess_text(news_text)
-
-    # Vectorize the cleaned text (using the fitted TF-IDF vectorizer)
-    text_vector = tfidf_vectorizer.transform([cleaned_text])
-
-    # Predict the class (0 for Real, 1 for Fake)
-    prediction = model.predict(text_vector)[0]
-
-    # Get the confidence score (probability of the predicted class)
-    # The output of predict_proba is [P(class 0), P(class 1)]
-    probabilities = model.predict_proba(text_vector)[0]
-    confidence = probabilities[prediction] * 100
-
-    # Map the prediction to a human-readable label
-    label = "FAKE" if prediction == 1 else "REAL"
-
-    return label, confidence
+    # Tokenize (split into words)
+    words = text.split()
+    
+    # Remove stopwords and lemmatize
+    words = [lemmatizer.lemmatize(word) for word in words if word not in stop_words]
+    
+    # Rejoin words into a single string
+    return " ".join(words)
 
 
-# --- 4. Streamlit App Interface ---
+# --- 4. Prediction Function ---
 
-st.title("📰 Fake News Detector (Text Analytics Project)")
-st.markdown("Enter a news article or headline to classify it as **REAL** or **FAKE**.")
+def predict_fake_news(text, vectorizer, model):
+    """
+    Vectorizes text and returns the model prediction and confidence.
+    """
+    if not vectorizer or not model:
+        return "N/A", 0.0, "Model Error"
 
-# Text area for user input
-user_input = st.text_area("Enter News Article Text:", height=200, 
-                          placeholder="Example: 'Aliens land in Mumbai and cure all diseases. Is this true?'")
+    # Preprocess the text
+    processed_text = preprocess_text(text)
+    
+    if not processed_text:
+        return "N/A", 0.0, "Input text is too short or empty after processing."
 
-# Prediction button
-if st.button("Analyze News"):
-    if user_input:
-        # Get the prediction
-        label, confidence = predict_news(user_input)
+    # Vectorize the preprocessed text
+    # The vectorizer expects an iterable (like a list) of strings
+    vectorized_text = vectorizer.transform([processed_text])
 
-        st.markdown("---")
-        st.subheader("Analysis Result")
+    # Get the prediction (0 or 1)
+    prediction = model.predict(vectorized_text)[0]
+    
+    # Get the confidence score (probability for the predicted class)
+    # predict_proba returns [[prob_class_0, prob_class_1]]
+    confidence = model.predict_proba(vectorized_text)[0]
+    
+    # Map the numerical prediction to labels
+    label = "REAL" if prediction == 0 else "FAKE"
+    
+    # Get the confidence percentage for the predicted label
+    confidence_score = confidence[prediction] * 100
 
-        # Display the result with appropriate color/icon
-        if label == "REAL":
-            st.success(f"**Model Prediction:** {label} News")
+    return label, confidence_score, None
+
+
+# --- 5. Streamlit App Layout ---
+
+def main():
+    """Main function to run the Streamlit application."""
+    st.set_page_config(page_title="Fake News Detector", layout="centered")
+
+    # Title and Description
+    st.markdown(
+        """
+        <style>
+        .title {
+            font-size: 32px;
+            font-weight: 700;
+            color: #333333;
+            margin-bottom: 5px;
+        }
+        .subtitle {
+            font-size: 18px;
+            color: #666666;
+            margin-bottom: 20px;
+        }
+        .stButton>button {
+            background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+            border-radius: 8px;
+            padding: 10px 20px;
+            transition: background-color 0.3s;
+        }
+        .stButton>button:hover {
+            background-color: #45a049;
+        }
+        .real-box {
+            background-color: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #c3e6cb;
+            font-size: 1.1em;
+            font-weight: bold;
+        }
+        .fake-box {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #f5c6cb;
+            font-size: 1.1em;
+            font-weight: bold;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown('<div class="title">📰 Fake News Detector (Text Analytics Project)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Enter a news article or headline to classify it as REAL or FAKE.</div>', unsafe_allow_html=True)
+
+    # Input Text Area
+    news_text = st.text_area(
+        "Enter News Article Text:", 
+        placeholder="Example: 'Aliens land in Mumbai and cure all diseases. Is this true?'",
+        height=200,
+        key="news_input"
+    )
+
+    # Analyze Button
+    if st.button("Analyze News"):
+        if not news_text:
+            st.warning("Please enter some text to analyze.")
         else:
-            st.error(f"**Model Prediction:** {label} News")
+            # Display spinner while processing
+            with st.spinner('Analyzing the news text...'):
+                label, confidence_score, error_message = predict_fake_news(news_text, tfidf_vectorizer, model)
 
-        # Display the confidence score
-        st.info(f"**Confidence:** {confidence:.2f}%")
+                if error_message:
+                    st.error(f"Prediction failed: {error_message}")
+                else:
+                    confidence_percent = f"{confidence_score:.2f}%"
+                    
+                    if label == "REAL":
+                        box_class = "real-box"
+                        emoji = "✅"
+                    else:
+                        box_class = "fake-box"
+                        emoji = "❌"
+                        
+                    st.markdown("---")
+                    st.subheader("Model Prediction:")
+                    st.markdown(
+                        f"""
+                        <div class="{box_class}">
+                            {emoji} Model Prediction: <span style="font-size: 1.2em;">{label}</span>
+                            <br>
+                            🔬 Confidence: {confidence_percent}
+                        </div>
+                        """, 
+                        unsafe_allow_html=True
+                    )
+                    
+                    st.info("Note: This is an automated prediction based on a trained model and should not be used as the sole source for verifying information.")
 
-        st.markdown("---")
-        st.markdown("*Note: This model is a demonstration and should not be used for critical fact-checking.*")
-
-    else:
-        st.warning("Please enter some news text to analyze.")
+if __name__ == "__main__":
+    main()
