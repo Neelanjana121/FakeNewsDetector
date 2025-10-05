@@ -29,9 +29,10 @@ lemmatizer = WordNetLemmatizer()
 def load_models():
     """Loads the pre-trained TF-IDF vectorizer and the Logistic Regression model."""
     try:
-        # Use explicit, joined paths to ensure the files are found relative to app.py
+        # --- PATHS RESTORED TO ORIGINAL NAMES ---
         vectorizer_filepath = os.path.join(script_dir, 'tfidf_vectorizer.pkl')
         model_filepath = os.path.join(script_dir, 'logistic_regression_model.pkl')
+        # --- END UPDATE ---
 
         # Load Vectorizer
         with open(vectorizer_filepath, 'rb') as f:
@@ -43,11 +44,10 @@ def load_models():
             
         return tfidf_vectorizer, model
     except FileNotFoundError as e:
-        # This will display an error on the screen if files are missing
+        # Update the error message to reflect the original filenames for debugging
         st.error(f"Error: Model file not found. Please ensure 'tfidf_vectorizer.pkl' and 'logistic_regression_model.pkl' are in the same directory as app.py. Details: {e}")
         return None, None
     except Exception as e:
-        # Catch potential pickle unpickling errors or other issues
         st.error(f"An unexpected error occurred during model loading. Details: {e}")
         return None, None
 
